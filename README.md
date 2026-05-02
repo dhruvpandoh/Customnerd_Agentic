@@ -5,7 +5,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-blueviolet.svg)](https://ollama.com/)
 
-CustomNerd is a **fully local**, privacy-first document analysis system. Upload context documents (regulations, policies, standards) and a target document, then let a local Ollama LLM evaluate how well the target aligns with the context. By default it runs a multi-step **agentic** pipeline, and it can also run in a **prompt-based** single-pass mode.
+CustomNerd is a **fully local**, privacy-first document analysis system. Upload context documents (regulations, policies, standards) and a target document, then let a local Ollama LLM evaluate how well the target aligns with the context. It supports two execution modes: a multi-step **agentic** pipeline and a **prompt-based** mode that runs a set of user-defined checks.
 
 **No data leaves your machine.** All inference runs locally via Ollama.
 
@@ -17,9 +17,9 @@ CustomNerd is a **fully local**, privacy-first document analysis system. Upload 
 4. Choose an **execution strategy**:
    - **Agentic** (default): Runs a 3-step pipeline.
      - **Step 1 — Summarize**: Produces a concise summary of the target document.
-     - **Step 2 — Evaluate**: For each of the top-k retrieved context chunks, asks the LLM a focused question: "Does the target comply with this specific requirement?" Each chunk gets its own LLM call with a simple STATUS / ISSUE / EVIDENCE / EXPLANATION format.
+     - **Step 2 — Evaluate**: For each of the top-k retrieved context chunks, asks the LLM a focused question: "Does the target comply with this specific requirement?" Each chunk gets its own LLM call with a structured STATUS / ISSUE / EVIDENCE / EXPLANATION format.
      - **Step 3 — Synthesize**: Takes all individual findings and writes a final verdict with key issues and recommendations.
-   - **Prompt-based**: Sends the target document plus the retrieved context chunks in one consolidated prompt and asks the model for a structured report in a single call.
+   - **Prompt-based**: Runs one or more user-defined checks against the target document and retrieved context. See [Prompt-Based Mode](#prompt-based-mode) below.
 5. Results are rendered in a styled report with color-coded compliance badges, evidence quotes, and a metadata sidebar.
 
 ## First Planned Use Case
@@ -78,18 +78,94 @@ This starts:
 1. Type a question in the text field (e.g., "Check if this agreement complies with the uploaded regulations").
 2. Upload one or more **context documents** (the rules/regulations/policies).
 3. Upload a single **target document** (the document to evaluate).
-4. Click **Run Analysis** and watch the selected analysis flow progress in real time.
+4. Select an **execution strategy** and click **Run Analysis**.
 
-### Running Prompt-Based Instead Of Agentic
+---
+
+## Agentic Mode
+
+Agentic mode is the default. It breaks the analysis into three focused LLM calls, which works well even with small (3B) models because each call is narrow and simple.
+
+**Pipeline:**
+1. **Summarize** — one LLM call produces a 3–5 sentence summary of the target document.
+2. **Evaluate** — one LLM call per retrieved context chunk (default: 8 chunks), each asking "does the target satisfy this specific requirement?" and returning a structured STATUS / ISSUE / EVIDENCE / EXPLANATION response.
+3. **Synthesize** — one final LLM call reads all chunk-level findings and writes an overall verdict, key issues, and recommendations.
+
+**When to use it:**
+- General-purpose compliance review where you want broad coverage of the context documents.
+- When you don't know in advance which specific aspects to check.
+- When working with smaller models — the narrow per-chunk calls keep each LLM task manageable.
+
+---
+
+## Prompt-Based Mode
+
+Prompt-based mode lets you define the exact checks you want the model to run. Instead of the system deciding what to evaluate, you supply a list of specific prompts — one per check — and the model evaluates each one independently against the target document and the retrieved context.
+
+**How it works:**
+
+Each prompt is sent as its own LLM call with the full target document excerpt and the top retrieved context chunks. The model returns a structured finding for that specific check: a status (compliant / non-compliant / unclear), explanation, evidence quotes, and a recommendation. All findings are assembled into the same report format as agentic mode.
+
+**When to use it:**
+- You have domain expertise and know exactly what to look for (e.g., a checklist of regulatory requirements).
+- You want consistent, repeatable checks across many documents.
+- You want the report to map directly to a specific review checklist or standard.
+- You need to audit or explain each check individually.
+
+### Using Prompt-Based Mode
 
 1. Start the app with `python3 run.py`.
-2. In the UI, change **Execution strategy** from `Agentic` to `Prompt-based`.
-3. Upload context and target documents as usual.
-4. Click **Run Analysis**.
+2. In the UI, change **Execution strategy** from `Agentic` to `Prompt-based`. A **Custom Analysis Prompts** panel will appear.
+3. Add your prompts in one of two ways:
+   - **Type them manually** — enter a prompt in the text box and click **Add** (or press Enter). Repeat for each check.
+   - **Upload a prompts file** — click "Choose prompts file" and upload a `.txt` file (one prompt per line) or a `.json` file (an array of strings). All prompts in the file are added to the list at once.
+4. Review the prompt list. Use the × button to remove any prompt, or **Clear all** to start over.
+5. Upload your context and target documents as usual, then click **Run Analysis**.
 
-If you want prompt-based mode to be the default for your local install, set `EXECUTION_STRATEGY=prompt_based` in `customnerd-backend/variables.env`.
+If no prompts are added, prompt-based mode falls back to a single consolidated pass that sends the full context and target to the model in one call.
 
-### Configuration
+### Writing Good Prompts
+
+Each prompt should describe one specific, self-contained check. The model works best when a prompt is:
+
+- **Specific** — name the exact attribute, clause type, or requirement to check.
+- **Scoped** — one thing per prompt, not "check everything about metering."
+- **Actionable** — frame it as something the model can look for in the text.
+
+Examples of well-scoped prompts:
+```
+Check that all voltage levels are stated explicitly in kV and are consistent with the interconnection point specifications.
+
+Check that the agreement defines a Point of Interconnection with enough detail (substation, bus, or circuit) to unambiguously locate it.
+
+Check that force majeure provisions clearly state whether they excuse payment obligations or only performance obligations.
+```
+
+### Sample Prompts File
+
+A sample prompts file for NY interconnection agreements is included at:
+```
+sample-docs/sample-prompts-interconnection-ny.txt
+```
+
+It contains 15 checks covering voltage specifications, POI definition, milestone schedules, curtailment rights, financial security, metering, force majeure, and more.
+
+---
+
+## Agentic vs. Prompt-Based: Comparison
+
+| | Agentic | Prompt-Based |
+|---|---|---|
+| **Who defines the checks** | The system (driven by retrieved chunks) | You (explicit prompts) |
+| **LLM calls per run** | 2 + number of retrieved chunks (default: 10) | 1 per prompt |
+| **Best for** | Broad, exploratory review | Targeted, checklist-driven review |
+| **Works well with small models** | Yes — each call is narrow | Yes — each call is focused |
+| **Output** | Findings keyed to context chunks | Findings keyed to your prompts |
+| **Repeatability** | Varies with chunk retrieval | Consistent across documents |
+
+---
+
+## Configuration
 
 Edit `customnerd-backend/variables.env` to change the Ollama model, base URL, or default execution strategy:
 
@@ -104,7 +180,9 @@ Larger models (e.g., `llama3.1:8b`, `qwen3:8b`) produce more detailed analysis b
 
 Execution strategy options:
 - `agentic`: default multi-call summarize/evaluate/synthesize workflow
-- `prompt_based`: single-call workflow that relies on one consolidated prompt
+- `prompt_based`: user-defined prompt checks, or single-pass if no prompts are supplied
+
+---
 
 ## Project Structure
 
@@ -117,13 +195,16 @@ customnerd-backend/
 
 customnerd-website/
   index.html              # Single-page UI for document upload and analysis
-  index.js                # Frontend logic — SSE streaming, HTML report rendering
-  index.css               # Styles — report sections, badges, cards
+  index.js                # Frontend logic — SSE streaming, HTML report rendering, prompt management
+  index.css               # Styles — report sections, badges, cards, prompts panel
   env.js                  # Frontend configuration (site name, API URL, styling)
   assets/                 # Logo and static assets
 
+sample-docs/
+  sample-prompts-interconnection-ny.txt   # 15 sample prompts for NY interconnection agreements
+
 run.py                    # Launcher — starts backend + frontend file server
-requirements.txt          # Python dependencies (11 packages)
+requirements.txt          # Python dependencies
 ```
 
 ## API Endpoints
@@ -133,7 +214,7 @@ requirements.txt          # Python dependencies (11 packages)
 | `GET` | `/` | Root — lists available routes |
 | `GET` | `/health` | Health check (Ollama reachability, storage status) |
 | `GET` | `/sse?session_id=...` | Server-Sent Events stream for a processing session |
-| `POST` | `/process_local_rag_analysis` | Main analysis endpoint — accepts query, context files, target file |
+| `POST` | `/process_local_rag_analysis` | Main analysis endpoint — accepts query, context files, target file, optional custom prompts |
 | `GET` | `/fetch_backend_mode` | Returns backend mode info and available execution strategies |
 | `GET` | `/ollama_status` | Ollama server status and available models |
 
@@ -146,24 +227,23 @@ PyMuPDF for PDFs, plain-text reader for everything else, with HTML cleaning via 
 Overlapping character-based chunks (default: 1200 chars, 200 overlap) to preserve nearby context.
 
 ### Retrieval
-TF-IDF vectorization (unigrams + bigrams) with cosine similarity. The user query and first 2500 chars of the target document form the retrieval query. Top-k (default: 8) most relevant chunks are returned.
+TF-IDF vectorization (unigrams + bigrams) with cosine similarity. The user query and first 2500 chars of the target document form the retrieval query. Top-k (default: 8) most relevant chunks are returned and passed to both agentic and prompt-based analysis.
 
 ### Agentic Analysis (3 steps, multiple LLM calls)
-1. **Summarize** — one LLM call to produce a 3-5 sentence target document summary
+1. **Summarize** — one LLM call to produce a 3–5 sentence target document summary
 2. **Evaluate** — one LLM call per retrieved chunk, each asking "does the target comply with this requirement?" in a structured STATUS/ISSUE/EVIDENCE/EXPLANATION format
 3. **Synthesize** — one LLM call that reads all findings and writes a final verdict, key issues, and recommendations
 
-This multi-call approach works well even with small models (3B parameters) because each call is focused and simple.
-
-### Prompt-Based Analysis (single LLM call)
+### Prompt-Based Analysis (one LLM call per prompt)
 1. Retrieve the top-k most relevant context chunks.
-2. Build one prompt containing the user question, target document, and retrieved context.
-3. Ask the model for a structured JSON report in a single response.
+2. For each user-supplied prompt, run one LLM call with the prompt, target document, and retrieved context.
+3. Each call returns a structured finding: status, explanation, evidence, and recommendation.
+4. All findings are assembled into the standard report format.
 
-This path is simpler and can be useful when you want a faster, less orchestrated workflow, though it is generally less controlled than the agentic pipeline.
+If no prompts are supplied, prompt-based mode sends the full target document and retrieved context in one consolidated call and asks for a structured JSON report.
 
 ### Streaming
-Progress updates for every pipeline step are streamed to the frontend via SSE in real time.
+Progress updates for every pipeline step — including per-prompt progress — are streamed to the frontend via SSE in real time.
 
 ## Privacy
 
@@ -180,6 +260,8 @@ Progress updates for every pipeline step are streamed to the frontend via SSE in
 **Backend won't start**: Make sure port 8000 is free and all dependencies are installed (`pip install -r requirements.txt`).
 
 **Empty or generic results**: Try a larger model (`ollama pull llama3.1:8b`) or more specific queries.
+
+**"Ollama client not initialized" error**: Your `openai` package version is incompatible with your installed `httpx`. Fix it by running `pip install "openai>=1.52.0"`.
 
 ## License
 
