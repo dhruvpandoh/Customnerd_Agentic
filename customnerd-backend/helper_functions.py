@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from ollama_executions import _retryable_ollama_call
+from llm_providers import retryable_llm_call
 
 logging.basicConfig(level=logging.INFO)
 
@@ -607,7 +607,7 @@ def _normalize_prompt_based_result(parsed: Dict[str, Any]) -> Dict[str, Any]:
 def _agent_summarize_target(target_text: str) -> str:
     """Agent step 1: Produce a concise summary of the target document."""
     excerpt = truncate_text(target_text, 6000)
-    raw = _retryable_ollama_call(
+    raw = retryable_llm_call(
         messages=[
             {"role": "system", "content": (
                 "You are a document summarizer. Read the document below and write a concise "
@@ -629,7 +629,7 @@ def _agent_evaluate_chunk(
     chunk: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Agent step 2: Evaluate the target against one context chunk."""
-    raw = _retryable_ollama_call(
+    raw = retryable_llm_call(
         messages=[
             {"role": "system", "content": (
                 "You are a compliance analyst. You will receive:\n"
@@ -703,7 +703,7 @@ def _agent_synthesize(
             f"  Explanation: {f['explanation']}\n\n"
         )
 
-    raw = _retryable_ollama_call(
+    raw = retryable_llm_call(
         messages=[
             {"role": "system", "content": (
                 "You are a compliance report writer. You will receive a target document summary "
@@ -734,7 +734,7 @@ def _run_single_custom_prompt(
     target_excerpt = truncate_text(target_text, 8000)
     context_block = format_retrieved_chunks_for_prompt(retrieved_chunks[:8])
 
-    raw = _retryable_ollama_call(
+    raw = retryable_llm_call(
         messages=[
             {"role": "system", "content": CUSTOM_PROMPT_SYSTEM_PROMPT},
             {"role": "user", "content": (
@@ -844,7 +844,7 @@ def _prompt_based_analyze_target(
     target_excerpt = truncate_text(target_text, 12000)
     context_block = format_retrieved_chunks_for_prompt(retrieved_chunks[:12])
 
-    raw = _retryable_ollama_call(
+    raw = retryable_llm_call(
         messages=[
             {"role": "system", "content": PROMPT_BASED_ANALYSIS_SYSTEM_PROMPT},
             {"role": "user", "content": (

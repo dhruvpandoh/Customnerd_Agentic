@@ -157,20 +157,47 @@ Check that force majeure provisions clearly state whether they excuse payment ob
 
 ## Configuration
 
-Edit `customnerd-backend/variables.env` to change the Ollama model, base URL, or default execution strategy:
+Edit `customnerd-backend/variables.env` to change the LLM provider, model, base URL, or default execution strategy.
+
+Current Ollama configuration:
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+LLM_BASE_URL=http://localhost:11434
+EXECUTION_STRATEGY=agentic
+```
+
+For backward compatibility, the existing Ollama-specific variables can still be supported:
 
 ```env
 LLM=ollama
 OLLAMA_MODEL=llama3.2
 OLLAMA_BASE_URL=http://localhost:11434
-EXECUTION_STRATEGY=agentic
 ```
 
-Larger models (e.g., `llama3.1:8b`, `qwen3:8b`) produce more detailed analysis but require more RAM and are slower.
+Larger local models, such as `llama3.1:8b` or `qwen3:8b`, can produce more detailed analysis but require more RAM and may run more slowly.
 
 Execution strategy options:
+
 - `agentic`: default multi-call summarize/evaluate/synthesize workflow
 - `prompt_based`: user-defined prompt checks, or single-pass if no prompts are supplied
+
+### Generalized LLM Provider Layer
+
+The backend can be generalized so the document analysis pipeline does not depend directly on Ollama. The proposed design introduces an `LLMProvider` interface and routes all model calls through `retryable_llm_call(...)`.
+
+This keeps the retrieval, chunking, agentic analysis, and prompt-based workflows unchanged. Only the model-calling layer changes.
+
+Example OpenAI-style configuration:
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+LLM_API_KEY=your_api_key_here
+```
+
+Future providers can include Ollama, OpenAI-compatible APIs, Anthropic, and other local or remote model endpoints.
 
 ---
 
