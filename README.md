@@ -7,7 +7,7 @@
 
 CustomNerd is a **fully local**, privacy-first document analysis system. Upload context documents (regulations, policies, standards) and a target document, then let a local Ollama LLM evaluate how well the target aligns with the context. It supports two execution modes: a multi-step **agentic** pipeline and a **prompt-based** mode that runs a set of user-defined checks.
 
-**No data leaves your machine.** All inference runs locally via Ollama.
+By default, no data leaves your machine when using Ollama locally. If a remote/API-based provider is configured, analysis requests may be sent to that provider according to its API settings.
 
 ## How It Works
 
