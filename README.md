@@ -265,7 +265,7 @@ Progress updates for every pipeline step — including per-prompt progress — a
 ## Privacy
 
 - All processing happens locally on your machine.
-- No external API calls are made during analysis.
+- By default, processing runs locally with Ollama. If a remote/API-based provider is configured, analysis requests may be sent to that provider according to its API settings.
 - Uploaded files are stored temporarily in `storage/sessions/` and can be cleaned up at any time.
 
 ## Troubleshooting
