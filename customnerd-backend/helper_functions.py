@@ -531,6 +531,15 @@ def format_retrieved_chunks_for_prompt(retrieved_chunks: List[Dict[str, Any]]) -
     return "\n\n---\n\n".join(formatted)
 
 
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    try:
+        if value is None:
+            return fallback
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _normalize_prompt_based_result(parsed: Dict[str, Any]) -> Dict[str, Any]:
     findings = parsed.get("findings")
     if not isinstance(findings, list):
@@ -1016,8 +1025,4 @@ def check_ollama_health() -> Dict[str, Any]:
             "error": str(exc),
             "models": [],
         }
-    def _safe_int(value: Any, fallback: int) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return fallback
+    

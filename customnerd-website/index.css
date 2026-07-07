@@ -1910,3 +1910,34 @@ h2 {
     color: #c53030;
     background: rgba(220, 38, 38, 0.06);
 }
+
+.extraction-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+.extraction-table th,
+.extraction-table td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    vertical-align: top;
+    text-align: left;
+}
+
+.extraction-table th {
+    font-weight: 700;
+}
+
+.extraction-table td:first-child {
+    width: 22%;
+}
+
+.extraction-table td:nth-child(2) {
+    width: 38%;
+}
+
+.extraction-table td:nth-child(3) {
+    width: 40%;
+}

@@ -121,6 +121,82 @@ function riskBadge(risk) {
     return `<span class="status-badge ${info.cls}">${info.label}</span>`;
 }
 
+function isExtractionResult(result) {
+    const question = $("question")?.value?.toLowerCase() || "";
+    const fo = result?.final_output || {};
+    const findings = fo.findings || [];
+
+    const extractionMarkers = [
+        "extract values",
+        "do not evaluate compliance",
+        "property address",
+        "acreage",
+        "landlord",
+        "tenant",
+        "grantor",
+        "grantee",
+        "easement",
+        "lease term",
+        "owner name",
+        "apn",
+        "parcel",
+        "legal description",
+        "assessed value",
+        "property taxes",
+        "site limitations",
+        "point of interconnection",
+        "poi",
+        "tie-line",
+        "collector system",
+    ];
+
+    return (
+        Array.isArray(findings) &&
+        findings.length > 0 &&
+        extractionMarkers.some((marker) => question.includes(marker))
+    );
+}
+
+function renderExtractionTable(findings) {
+    const rows = findings
+        .map((f) => {
+            const field = escapeHtml(f.issue || "");
+            const value = markdownToHtml(f.explanation || "Not Found");
+
+            let evidence = f.target_evidence || "";
+            if (Array.isArray(evidence)) {
+                evidence = evidence.join("; ");
+            }
+
+            return `
+                <tr>
+                    <td><strong>${field}</strong></td>
+                    <td>${value}</td>
+                    <td>${escapeHtml(evidence || "")}</td>
+                </tr>
+            `;
+        })
+        .join("");
+
+    return `
+        <section class="report-section report-findings">
+            <h3><i class="fas fa-table"></i> Extraction Results</h3>
+            <table class="extraction-table">
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Value</th>
+                        <th>Evidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </section>
+    `;
+}
+
 function renderAnalysisResult(result) {
     const output = $("analysis-output");
     const meta = $("run-metadata");
@@ -134,6 +210,29 @@ function renderAnalysisResult(result) {
 
     const fo = result?.final_output || {};
     const html = [];
+
+    // --- Extraction mode: compact field-value-evidence table ---
+    if (isExtractionResult(result)) {
+        html.push(renderExtractionTable(fo.findings || []));
+        output.innerHTML = html.join("");
+
+        if (meta) {
+            meta.innerHTML = `
+                <div class="meta-item"><i class="fas fa-cog"></i> <strong>Analysis:</strong> Extraction</div>
+                <div class="meta-item"><i class="fas fa-sitemap"></i> <strong>Execution:</strong> ${escapeHtml(humanizeExecutionStrategy(result.execution_strategy || "agentic"))}</div>
+                <div class="meta-item"><i class="fas fa-file"></i> <strong>Target:</strong> ${escapeHtml(result.target_file || "Unknown")}</div>
+                <div class="meta-item"><i class="fas fa-folder"></i> <strong>Context:</strong> ${escapeHtml((result.context_files || []).join(", "))}</div>
+                <div class="meta-item"><i class="fas fa-cubes"></i> <strong>Chunks:</strong> ${result.retrieved_chunk_count ?? "?"}</div>
+                <div class="meta-item"><i class="fas fa-clock"></i> <strong>Runtime:</strong> ${result.runtime_seconds ?? "?"}s</div>
+            `;
+        }
+
+        localStorage.setItem("localAnalysisResult", JSON.stringify(result));
+        localStorage.setItem("rawOutput", output.innerText);
+
+        if (pdfButton) pdfButton.classList.remove("hidden");
+        return;
+    }
 
     // --- Synthesis (final report) ---
     if (fo.synthesis) {
@@ -430,53 +529,158 @@ function generatePDF() {
             alert("PDF generation library not loaded. Please refresh and try again.");
             return;
         }
+
         const stored = safeJsonParse(localStorage.getItem("localAnalysisResult"), null);
-        const rawOutput = localStorage.getItem("rawOutput");
         const question = $("question")?.value?.trim() || "Untitled request";
 
-        if (!stored || !rawOutput) {
+        if (!stored) {
             alert("No analysis is available to export yet.");
             return;
         }
 
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
+
         const margin = 15;
-        const maxWidth = 180;
+        const pageWidth = doc.internal.pageSize.width;
         const pageHeight = doc.internal.pageSize.height;
-        const lineHeight = 7;
+        const maxWidth = pageWidth - margin * 2;
         let y = 20;
 
-        function addWrappedText(text, fontSize = 12, isBold = false) {
-            doc.setFont("helvetica", isBold ? "bold" : "normal");
+        function checkPage(extraHeight = 10) {
+            if (y + extraHeight > pageHeight - 20) {
+                doc.addPage();
+                y = 20;
+            }
+        }
+
+        function addWrappedText(text, x, startY, width, lineHeight = 6, fontSize = 10) {
             doc.setFontSize(fontSize);
-            const lines = doc.splitTextToSize(String(text ?? ""), maxWidth);
-            lines.forEach((line) => {
-                if (y > pageHeight - 20) { doc.addPage(); y = 20; }
-                doc.text(line, margin, y);
-                y += lineHeight;
+            const lines = doc.splitTextToSize(String(text ?? ""), width);
+            let localY = startY;
+
+            for (const line of lines) {
+                checkPage(lineHeight);
+                doc.text(line, x, localY);
+                localY += lineHeight;
+            }
+
+            return localY;
+        }
+
+        function addSectionTitle(title) {
+            checkPage(12);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(13);
+            doc.text(title, margin, y);
+            y += 8;
+            doc.setFont("helvetica", "normal");
+        }
+
+        function cleanText(value) {
+            if (Array.isArray(value)) return value.join("; ");
+            return String(value ?? "").replace(/\s+/g, " ").trim();
+        }
+
+        function drawExtractionTable(findings) {
+            const colX = [margin, margin + 45, margin + 115];
+            const colW = [45, 70, pageWidth - margin - (margin + 115)];
+            const rowPadding = 3;
+            const lineHeight = 5;
+
+            // Header
+            checkPage(12);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+
+            const headerHeight = 9;
+            doc.rect(colX[0], y, colW[0], headerHeight);
+            doc.rect(colX[1], y, colW[1], headerHeight);
+            doc.rect(colX[2], y, colW[2], headerHeight);
+            doc.text("Field", colX[0] + rowPadding, y + 6);
+            doc.text("Value", colX[1] + rowPadding, y + 6);
+            doc.text("Evidence", colX[2] + rowPadding, y + 6);
+            y += headerHeight;
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+
+            findings.forEach((f) => {
+                const field = cleanText(f.issue || "");
+                const value = cleanText(f.explanation || "Not Found");
+                const evidence = cleanText(f.target_evidence || "");
+
+                const fieldLines = doc.splitTextToSize(field, colW[0] - rowPadding * 2);
+                const valueLines = doc.splitTextToSize(value, colW[1] - rowPadding * 2);
+                const evidenceLines = doc.splitTextToSize(evidence, colW[2] - rowPadding * 2);
+
+                const maxLines = Math.max(
+                    fieldLines.length,
+                    valueLines.length,
+                    evidenceLines.length,
+                    1
+                );
+
+                const rowHeight = Math.max(12, maxLines * lineHeight + rowPadding * 2);
+
+                checkPage(rowHeight + 5);
+
+                doc.rect(colX[0], y, colW[0], rowHeight);
+                doc.rect(colX[1], y, colW[1], rowHeight);
+                doc.rect(colX[2], y, colW[2], rowHeight);
+
+                let textY = y + rowPadding + 4;
+
+                doc.setFont("helvetica", "bold");
+                fieldLines.forEach((line, idx) => {
+                    doc.text(line, colX[0] + rowPadding, textY + idx * lineHeight);
+                });
+
+                doc.setFont("helvetica", "normal");
+                valueLines.forEach((line, idx) => {
+                    doc.text(line, colX[1] + rowPadding, textY + idx * lineHeight);
+                });
+
+                evidenceLines.forEach((line, idx) => {
+                    doc.text(line, colX[2] + rowPadding, textY + idx * lineHeight);
+                });
+
+                y += rowHeight;
             });
         }
 
+        // Title
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.text("CustomNerd Analysis Report", margin, y);
-        y += 10;
+        doc.setFontSize(15);
+        doc.text("CustomNerd Extraction Report", margin, y);
+        y += 9;
 
         const now = new Date();
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.text(`Generated: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`, margin, y);
-        y += 12;
-
-        addWrappedText("Question:", 14, true);
-        addWrappedText(question, 12, false);
-        y += 4;
-        doc.line(margin, y, margin + maxWidth, y);
         y += 10;
 
-        addWrappedText("Analysis:", 14, true);
-        addWrappedText(rawOutput, 11, false);
+        // Question
+        addSectionTitle("Question");
+        doc.setFont("helvetica", "normal");
+        y = addWrappedText(question, margin, y, maxWidth, 5, 9);
+        y += 5;
+
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 8;
+
+        const fo = stored?.final_output || {};
+        const findings = fo.findings || [];
+
+        if (Array.isArray(findings) && findings.length > 0 && isExtractionResult(stored)) {
+            addSectionTitle("Extraction Results");
+            drawExtractionTable(findings);
+        } else {
+            const rawOutput = localStorage.getItem("rawOutput") || JSON.stringify(fo, null, 2);
+            addSectionTitle("Analysis");
+            y = addWrappedText(rawOutput, margin, y, maxWidth, 6, 10);
+        }
 
         const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
         doc.save(`analysis_${timestamp}.pdf`);

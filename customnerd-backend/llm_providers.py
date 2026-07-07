@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+from dotenv import load_dotenv
+from pathlib import Path
 import logging
 import os
 import time
@@ -13,6 +14,9 @@ from openai import (
     APIConnectionError,
     NotFoundError,
 )
+
+ENV_PATH = Path(__file__).resolve().parent / "variables.env"
+load_dotenv(ENV_PATH, override=True)
 
 MAX_RETRIES = 3
 BACKOFF_SECS = 2
